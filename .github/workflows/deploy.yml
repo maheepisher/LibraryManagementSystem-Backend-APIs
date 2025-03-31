@@ -33,10 +33,14 @@ jobs:
         run: |
           echo "AWS_REGION: $AWS_REGION"
           echo "AWS_ACCOUNT_ID: $AWS_ACCOUNT_ID"
+          echo "AWS_ACCESS_KEY_ID (masked): ${{ secrets.AWS_ACCESS_KEY_ID }}"
+          echo "AWS_SECRET_ACCESS_KEY (masked): ${{ secrets.AWS_SECRET_ACCESS_KEY }}"
           if [ -z "$AWS_REGION" ] || [ -z "$AWS_ACCOUNT_ID" ]; then
             echo "Error: AWS_REGION or AWS_ACCOUNT_ID is not set"
             exit 1
           fi
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}  # Fallback if action fails to set it
 
       - name: Login to Amazon ECR
         run: |
