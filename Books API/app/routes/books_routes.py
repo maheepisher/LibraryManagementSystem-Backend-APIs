@@ -3,6 +3,10 @@ from app.services.books_service import manage_books_details
 
 books_routes = Blueprint('books_routes', __name__)
 
+@books_routes.route('/books/test', methods=['GET'])
+def test():
+    return jsonify({'Message': 'This API is working!'})
+
 # --------------------------- GET User Details ---------------------------
 @books_routes.route('/books', methods=['GET'])
 def get_books():

@@ -3,19 +3,9 @@ from app.services.reservation_service import manage_reservation_details
 
 reservation_routes = Blueprint('reservation_routes', __name__)
 
-# --------------------------- Reserve Books ---------------------------
-# @reservation_routes.route('/reservation/reserve', methods=['POST'])
-# def reserve_book():
-#     data = request.json
-#     if 'role' not in data or 'book_id' not in data or 'customer_id' not in data:
-#         return jsonify({'Message': 'User role, Book ID, and Customer ID are required for RESERVE'}), 400
-
-#     result = manage_reservation_details('RESERVE', data['role'], None, data['book_id'], data['customer_id'])
-#     if not isinstance(result, dict) or 'Message' not in result:
-#         return jsonify({'Message': 'Unexpected response from database'}), 500
-#     if 'error' in result['Message'].lower():
-#         return jsonify(result), 500
-#     return jsonify(result), 200
+@reservation_routes.route('/reservation/test', methods=['GET'])
+def test():
+    return jsonify({'Message': 'This API is working!'})
 
 @reservation_routes.route('/reservation/reserve', methods=['POST'])
 def reserve_book():
