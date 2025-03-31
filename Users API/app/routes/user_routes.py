@@ -7,7 +7,7 @@ user_routes = Blueprint('user_routes', __name__)
 
 @user_routes.route('/user/test', methods=['GET'])
 def test():
-    return jsonify({'Message': 'This API is working!'})
+    return jsonify({'Message': 'This API is Works!'})
 
 # --------------------------- GET User Details ---------------------------
 @user_routes.route('/user', methods=['GET'])
