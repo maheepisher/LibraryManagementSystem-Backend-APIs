@@ -39,12 +39,13 @@ jobs:
             echo "Error: AWS_REGION or AWS_ACCOUNT_ID is not set"
             exit 1
           fi
-        env:
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}  # Fallback if action fails to set it
 
       - name: Login to Amazon ECR
         run: |
-          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+          # Debug the ECR URI
+          ECR_URI="051826698039.dkr.ecr.us-east-1.amazonaws.com"
+          echo "ECR_URI: $ECR_URI"
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 051826698039.dkr.ecr.us-east-1.amazonaws.com
 
       - name: Determine Changed Services
         id: filter
@@ -72,18 +73,18 @@ jobs:
           IMAGE_TAG=$(date +%s)
 
           if [[ $CHANGED_SERVICES == *"books"* ]]; then
-            docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG ./Books\ API
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG
+            docker build -t 051826698039.dkr.ecr.us-east-1.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG ./Books\ API
+            docker push 051826698039.dkr.ecr.us-east-1.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG
           fi
 
           if [[ $CHANGED_SERVICES == *"users"* ]]; then
-            docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG ./Users\ API
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG
+            docker build -t 051826698039.dkr.ecr.us-east-1.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG ./Users\ API
+            docker push 051826698039.dkr.ecr.us-east-1.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG
           fi
 
           if [[ $CHANGED_SERVICES == *"reservation"* ]]; then
-            docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG ./Reservation\ API
-            docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG
+            docker build -t 051826698039.dkr.ecr.us-east-1.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG ./Reservation\ API
+            docker push 051826698039.dkr.ecr.us-east-1.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG
           fi
 
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
