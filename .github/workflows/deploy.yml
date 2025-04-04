@@ -1,92 +1,54 @@
-name: Deploy APIs to ECR
+name: Deploy Microservices to ECR
 
 on:
   push:
     branches:
       - main
-    paths:
-      - 'Books API/**'
-      - 'Users API/**'
-      - 'Reservation API/**'
+  workflow_dispatch:  # Allows manual triggering
+
+env:
+  ECR_REPO: capstone-lms  # Base name for ECR repositories
+  AWS_REGION: ${{ secrets.AWS_REGION }}  # AWS region from secrets
 
 jobs:
-  detect-changes:
+  build-and-push:
     runs-on: ubuntu-latest
-    outputs:
-      changed_apis: ${{ steps.filter.outputs.changed }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Detect changed directories
-        id: filter
-        run: |
-          CHANGED_APIS=""
-          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^Books API/'; then
-            CHANGED_APIS+="books,"
-          fi
-          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^Users API/'; then
-            CHANGED_APIS+="users,"
-          fi
-          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^Reservation API/'; then
-            CHANGED_APIS+="reservation,"
-          fi
-          CHANGED_APIS=${CHANGED_APIS%,} # Remove trailing comma
-          echo "changed=$CHANGED_APIS" >> $GITHUB_OUTPUT
-
-  deploy:
-    needs: detect-changes
-    runs-on: ubuntu-latest
-    if: needs.detect-changes.outputs.changed_apis != ''
-    strategy:
-      matrix:
-        api: ${{ fromJson('["books", "users", "reservation"]') }}
-        include:
-          - api: books
-            folder: "Books API"
-            ecr_repo: "capstone-lms/books"
-          - api: users
-            folder: "Users API"
-            ecr_repo: "capstone-lms/users"
-          - api: reservation
-            folder: "Reservation API"
-            ecr_repo: "capstone-lms/reservation"
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Check if API was modified
-        id: check-api
-        run: |
-          if echo "${{ needs.detect-changes.outputs.changed_apis }}" | grep -q "${{ matrix.api }}"; then
-            echo "build=true" >> $GITHUB_ENV
-          else
-            echo "build=false" >> $GITHUB_ENV
-        shell: bash
-
-      - name: Configure AWS credentials
-        if: env.build == 'true'
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID" >> $GITHUB_ENV
 
       - name: Login to Amazon ECR
-        if: env.build == 'true'
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Build and Push Docker Image
-        if: env.build == 'true'
         run: |
-          IMAGE_TAG=$(date +%Y%m%d%H%M%S)
-          ECR_REPO="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ matrix.ecr_repo }}"
-          
-          cd "${{ matrix.folder }}"
-          
-          docker build -t "$ECR_REPO:$IMAGE_TAG" .
-          docker push "$ECR_REPO:$IMAGE_TAG"
-          
-          echo "Pushed image: $ECR_REPO:$IMAGE_TAG"
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Set Image Tag
+        run: |
+          IMAGE_TAG=$(date +%s)  # Use timestamp for unique tag
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Build and Push Books API
+        run: |
+          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG "./Books API"
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG
+
+      - name: Build and Push Users API
+        run: |
+          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG "./Users API"
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG
+
+      - name: Build and Push Reservation API
+        run: |
+          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG "./Reservation API"
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG
