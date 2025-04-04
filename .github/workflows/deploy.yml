@@ -1,5 +1,6 @@
 name: Deploy Microservices
 
+# Trigger the workflow on push events or manual dispatch
 on:
   push:
     paths:
@@ -8,20 +9,26 @@ on:
       - 'Reservation API/**'
   workflow_dispatch:  # Allows manual triggering
 
+# Environment variables
 env:
   ECR_REPO: capstone-lms  # Base name for ECR repositories
   ECS_CLUSTER: my-ecs-cluster
   ECS_SERVICE_BOOKS: books-service
   ECS_SERVICE_USERS: users-service
   ECS_SERVICE_RESERVATION: reservation-service
+  AWS_REGION: ${{ secrets.AWS_REGION }}  # Use secret for region
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      # Checkout the latest commit
       - name: Checkout Code
-        uses: actions/checkout@v4  # Updated to latest version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}  # Use the latest commit SHA to avoid invalid references
 
+      # Configure AWS credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -29,47 +36,54 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # Get AWS Account ID
       - name: Get AWS Account ID
         run: |
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID" >> $GITHUB_ENV
 
+      # Login to Amazon ECR
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
+      # Determine which services changed
       - name: Determine Changed Services
         run: |
-          if [ "${{ github.event_name }}" == "push" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
             CHANGED_SERVICES=""
-            if git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep '^Books API/'; then
+            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^Books API/'; then
               CHANGED_SERVICES="$CHANGED_SERVICES books"
             fi
-            if git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep '^Users API/'; then
+            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^Users API/'; then
               CHANGED_SERVICES="$CHANGED_SERVICES users"
             fi
-            if git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep '^Reservation API/'; then
+            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q '^Reservation API/'; then
               CHANGED_SERVICES="$CHANGED_SERVICES reservation"
             fi
+            # Remove leading space if any
             CHANGED_SERVICES=$(echo "$CHANGED_SERVICES" | sed 's/^ //')
           else
+            # For workflow_dispatch, deploy all services
             CHANGED_SERVICES="books users reservation"
           fi
           echo "CHANGED_SERVICES=$CHANGED_SERVICES" >> $GITHUB_ENV
 
-      - name: Build and Push Docker Images for Changed Services
+      # Build and push Docker images for changed services
+      - name: Build and Push Docker Images
         run: |
-          IMAGE_TAG=$(date +%s)
-          if [[ $CHANGED_SERVICES == *"books"* ]]; then
+          IMAGE_TAG=$(date +%s)  # Use timestamp as tag
+          if echo "$CHANGED_SERVICES" | grep -q "books"; then
             docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO-books:$IMAGE_TAG ./Books\ API
             docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO-books:$IMAGE_TAG
           fi
-          if [[ $CHANGED_SERVICES == *"users"* ]]; then
+          if echo "$CHANGED_SERVICES" | grep -q "users"; then
             docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO-users:$IMAGE_TAG ./Users\ API
             docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO-users:$IMAGE_TAG
           fi
-          if [[ $CHANGED_SERVICES == *"reservation"* ]]; then
+          if echo "$CHANGED_SERVICES" | grep -q "reservation"; then
             docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO-reservation:$IMAGE_TAG ./Reservation\ API
             docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO-reservation:$IMAGE_TAG
           fi
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
