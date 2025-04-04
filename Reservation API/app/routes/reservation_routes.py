@@ -5,7 +5,7 @@ reservation_routes = Blueprint('reservation_routes', __name__)
 
 @reservation_routes.route('/reservation/test', methods=['GET'])
 def test():
-    return jsonify({'Message': 'This API is working!'})
+    return jsonify({'Message': 'This Reservation API is working!'})
 
 @reservation_routes.route('/reservation/reserve', methods=['POST'])
 def reserve_book():
