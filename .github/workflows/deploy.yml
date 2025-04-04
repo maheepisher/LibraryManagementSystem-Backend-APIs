@@ -29,15 +29,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Debug Environment Variables
-        run: |
-          echo "AWS_REGION: $AWS_REGION"
-          echo "AWS_ACCOUNT_ID: $AWS_ACCOUNT_ID"
-          if [ -z "$AWS_REGION" ] || [ -z "$AWS_ACCOUNT_ID" ]; then
-            echo "Error: AWS_REGION or AWS_ACCOUNT_ID is not set"
-            exit 1
-          fi
-
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
