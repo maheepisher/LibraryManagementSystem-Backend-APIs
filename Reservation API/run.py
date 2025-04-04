@@ -12,4 +12,4 @@ CORS(app)
 app.register_blueprint(reservation_routes, url_prefix='/api')
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5002)
+    app.run(debug=True)
