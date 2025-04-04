@@ -5,7 +5,7 @@ books_routes = Blueprint('books_routes', __name__)
 
 @books_routes.route('/books/test', methods=['GET'])
 def test():
-    return jsonify({'Message': 'This API is working!'})
+    return jsonify({'Message': 'This Books API is working!'})
 
 # --------------------------- GET User Details ---------------------------
 @books_routes.route('/books', methods=['GET'])
