@@ -6,8 +6,8 @@ from app.routes.user_routes import user_routes  # Import your blueprint
 app = Flask(__name__)
 
 # Enable CORS
-CORS(app)
-
+#CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Register your blueprint
 app.register_blueprint(user_routes, url_prefix='/api')
 

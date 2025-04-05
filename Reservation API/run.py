@@ -6,7 +6,8 @@ from app.routes.reservation_routes import reservation_routes  # Import your blue
 app = Flask(__name__)
 
 # Enable CORS
-CORS(app)
+#CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Register your blueprint
 app.register_blueprint(reservation_routes, url_prefix='/api')

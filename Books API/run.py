@@ -6,8 +6,8 @@ from app.routes.books_routes import books_routes  # Import your blueprint
 app = Flask(__name__)
 
 # Enable CORS
-CORS(app)
-
+#CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Register your blueprint
 app.register_blueprint(books_routes, url_prefix='/api')
 
