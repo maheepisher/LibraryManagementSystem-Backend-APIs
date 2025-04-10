@@ -1,11 +1,23 @@
 from flask import Blueprint, request, jsonify
 from app.services.reservation_service import manage_reservation_details
+from app.services.reservation_service import trigger_reservation_lambda
+import json
 
 reservation_routes = Blueprint('reservation_routes', __name__)
 
 @reservation_routes.route('/reservation/test', methods=['GET'])
 def test():
-    return jsonify({'Message': 'This Reservation API is working!'})
+    result = trigger_reservation_lambda("REQUEST", "BOOK ABC", "maheep.isher@gmail.com", 16)
+    
+    if result:
+        print("Lambda Response:")
+        #print(json.dumps(result, indent=2))
+        return jsonify({'Message': json.dumps(result, indent=2)})
+    else:
+        print("Failed to get a response from Lambda")
+        return jsonify({'Message': 'Failed to get a response from Lambda'})
+        #return jsonify({'Message': 'This Users API is Working!'})
+    #return jsonify({'Message': 'This Reservation API is working!'})
 
 @reservation_routes.route('/reservation/reserve', methods=['POST'])
 def reserve_book():
@@ -15,6 +27,8 @@ def reserve_book():
 
     result = manage_reservation_details('RESERVE', data['role'], None, data['book_id'], data['customer_id'], None, None)
     if isinstance(result, list) and len(result) == 1:
+        print(f"Book name: {data['book_name']}, Customer email: {data['customer_email']}, Reservation ID: {result[0]['ReservationID']}")
+        result2 = trigger_reservation_lambda('REQUEST', data['book_name'], data['customer_email'], result[0]['ReservationID'])
         return jsonify(result[0]), 200
     elif isinstance(result, dict) and 'Message' in result:
         return jsonify(result), 500 if 'error' in result['Message'].lower() else 200
@@ -64,6 +78,9 @@ def request_decision():
         return jsonify({'Message': 'Reservation ID, Approver ID & Decision are required for updating a decision'}), 400
 
     result = manage_reservation_details('REQUESTDECISIONS', data['role'], data['reservation_id'], None, None, data['decision'], data['approver_id'])
+    if result:
+        print(f"decision: {data['decision']}, bookname: {data['book_name']}, email: {data['customer_Email']}, id: {data['reservation_id']}")
+        result1 = trigger_reservation_lambda(data['decision'], data['book_name'], data['customer_Email'], data['reservation_id'])
     return jsonify(result), 200 if result else 500
 
 # --------------------------- Fetch Returns ---------------------------

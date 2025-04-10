@@ -1,13 +1,24 @@
 from flask import Blueprint, request, jsonify
 from app.services.user_service import manage_user_details
-
+from app.services.user_service import trigger_lambda
+import json
 user_routes = Blueprint('user_routes', __name__)
 
 
 
 @user_routes.route('/user/test', methods=['GET'])
 def test():
-    return jsonify({'Message': 'This Users API is Working!'})
+    email_to_test = "maheepchawla97@gmail.com"
+    result = trigger_lambda(email_to_test)
+    
+    if result:
+        print("Lambda Response:")
+        #print(json.dumps(result, indent=2))
+        return jsonify({'Message': json.dumps(result, indent=2)})
+    else:
+        print("Failed to get a response from Lambda")
+        return jsonify({'Message': 'Failed to get a response from Lambda'})
+        #return jsonify({'Message': 'This Users API is Working!'})
 
 # --------------------------- GET User Details ---------------------------
 @user_routes.route('/user', methods=['GET'])
@@ -32,6 +43,9 @@ def create_user():
         return jsonify({data}), 400
 
     result = manage_user_details('POST', data['role'], None, data['name'], data['dob'], data['address'], data['email'], data['phone_no'])
+    if result:
+        result1 = trigger_lambda(data['email'])
+    
     return jsonify(result), 201 if result else 500
 
 # --------------------------- PUT (Update User) ---------------------------
