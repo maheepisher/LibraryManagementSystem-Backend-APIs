@@ -8,17 +8,17 @@ user_routes = Blueprint('user_routes', __name__)
 
 @user_routes.route('/user/test', methods=['GET'])
 def test():
-    email_to_test = "maheepchawla97@gmail.com"
-    result = trigger_lambda(email_to_test)
+    # email_to_test = "maheepchawla97@gmail.com"
+    # result = trigger_lambda(email_to_test)
     
-    if result:
-        print("Lambda Response:")
-        #print(json.dumps(result, indent=2))
-        return jsonify({'Message': json.dumps(result, indent=2)})
-    else:
-        print("Failed to get a response from Lambda")
-        return jsonify({'Message': 'Failed to get a response from Lambda'})
-        #return jsonify({'Message': 'This Users API is Working!'})
+    # if result:
+    #     print("Lambda Response:")
+    #     #print(json.dumps(result, indent=2))
+    #     return jsonify({'Message': json.dumps(result, indent=2)})
+    # else:
+    #     print("Failed to get a response from Lambda")
+    #     return jsonify({'Message': 'Failed to get a response from Lambda'})
+    return jsonify({'Message': 'This Users API is Working!'})
 
 # --------------------------- GET User Details ---------------------------
 @user_routes.route('/user', methods=['GET'])

@@ -17,6 +17,9 @@ def get_db_connection():
         if connection.is_connected():
             print("Successfully connected to the database.")
             return connection
+        else:
+            print("Connection established but not active.")
+            return None
     except Error as e:
         print(f"Error: {e}")
         return None

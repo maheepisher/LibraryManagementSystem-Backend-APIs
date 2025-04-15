@@ -47,14 +47,22 @@ def trigger_reservation_lambda(operation, book_name, customer_email, reservation
 
 def manage_reservation_details(operation, user_role, reservationID=None, bookID=None, customerID=None, decision = None, ApproverID = None):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    if conn is None or not conn.is_connected():
+        print("Failed to establish database connection.")
+        return {'Message': 'Database connection failed.'}
+
+    cursor = None
+    
+    #cursor = conn.cursor(dictionary=True)
     try:
+        cursor = conn.cursor(dictionary=True)
         params = [operation, user_role, reservationID, bookID, customerID, decision, ApproverID]
         cursor.callproc('ManageReservations', params)
         result = []
         for res in cursor.stored_results():
             result = res.fetchall()
-        return result  # Return the entire list, empty or not
+        return result if result else {'Message': 'Operation completed but no data returned.'}
+        #return result  # Return the entire list, empty or not
     except Exception as e:
         print(f"Error: {e}")
         return {'Message': f'Error processing request: {str(e)}'}

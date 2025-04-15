@@ -7,17 +7,17 @@ reservation_routes = Blueprint('reservation_routes', __name__)
 
 @reservation_routes.route('/reservation/test', methods=['GET'])
 def test():
-    result = trigger_reservation_lambda("REQUEST", "BOOK ABC", "maheep.isher@gmail.com", 16)
+    # result = trigger_reservation_lambda("REQUEST", "BOOK ABC", "maheep.isher@gmail.com", 16)
     
-    if result:
-        print("Lambda Response:")
-        #print(json.dumps(result, indent=2))
-        return jsonify({'Message': json.dumps(result, indent=2)})
-    else:
-        print("Failed to get a response from Lambda")
-        return jsonify({'Message': 'Failed to get a response from Lambda'})
+    # if result:
+    #     print("Lambda Response:")
+    #     #print(json.dumps(result, indent=2))
+    #     return jsonify({'Message': json.dumps(result, indent=2)})
+    # else:
+    #     print("Failed to get a response from Lambda")
+    #     return jsonify({'Message': 'Failed to get a response from Lambda'})
         #return jsonify({'Message': 'This Users API is Working!'})
-    #return jsonify({'Message': 'This Reservation API is working!'})
+    return jsonify({'Message': 'This Reservation API is working!'})
 
 @reservation_routes.route('/reservation/reserve', methods=['POST'])
 def reserve_book():

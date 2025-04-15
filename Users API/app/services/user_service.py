@@ -39,9 +39,14 @@ def trigger_lambda(email):
 
 def manage_user_details(method, user_role, user_id=None, name=None, dob=None, address=None, email=None, phone_no=None):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    if conn is None or not conn.is_connected():
+        print("Failed to establish database connection.")
+        return {'Message': 'Database connection failed.'}
 
+    cursor = None
+    
     try:
+        cursor = conn.cursor(dictionary=True)
         params = [method, user_role, user_id, name, dob, address, email, phone_no]
         cursor.callproc('ManageUserDetails', params)
 
@@ -49,7 +54,7 @@ def manage_user_details(method, user_role, user_id=None, name=None, dob=None, ad
         for res in cursor.stored_results():
             result = res.fetchall()
 
-        return result
+        return result if result else {'Message': 'Operation completed but no data returned.'}
     except Exception as e:
         print(f"Error: {e}")
         return {'Message': 'Error processing request.'}
