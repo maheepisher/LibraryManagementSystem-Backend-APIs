@@ -1,19 +1,27 @@
-name: Deploy Microservices to ECR
+name: Deploy Microservices to ECR and ECS
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:  # Allows manual triggering
-
-
+  
 env:
   ECR_REPO: capstone-lms  # Base name for ECR repositories
   AWS_REGION: ${{ secrets.AWS_REGION }}  # AWS region from secrets
+  CLUSTER_NAME: LMS-Cluster  # ECS cluster name from CloudFormation template
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service:
+          - { dir: "Books API", repo: books, service_name: Books-ECSService, container_name: books-container }
+          - { dir: "Users API", repo: users, service_name: User-ECSService, container_name: user-container }
+          - { dir: "Reservation API", repo: reservation, service_name: Reservation-ECSService, container_name: reservation-container }
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -39,17 +47,23 @@ jobs:
           IMAGE_TAG=$(date +%s)  # Use timestamp for unique tag
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Build and Push Books API
+      - name: Build and Push ${{ matrix.service.repo }} API
         run: |
-          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG "./Books API"
-          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG
+          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/${{ matrix.service.repo }}:$IMAGE_TAG "./${{ matrix.service.dir }}"
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/${{ matrix.service.repo }}:$IMAGE_TAG
 
-      - name: Build and Push Users API
+      - name: Deploy ${{ matrix.service.repo }} to ECS
         run: |
-          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG "./Users API"
-          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG
-
-      - name: Build and Push Reservation API
-        run: |
-          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG "./Reservation API"
-          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG
+          SERVICE_NAME=${{ matrix.service.service_name }}
+          CONTAINER_NAME=${{ matrix.service.container_name }}
+          # Get current task definition ARN from the service
+          TASK_DEF_ARN=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].taskDefinition' --output text)
+          # Retrieve the full task definition
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN --query 'taskDefinition' --output json)
+          # Update the image for the specific container
+          NEW_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/${{ matrix.service.repo }}:$IMAGE_TAG"
+          UPDATED_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$NEW_IMAGE" --arg NAME "$CONTAINER_NAME" '.containerDefinitions = [.containerDefinitions[] | if .name == $NAME then .image = $IMAGE else . end] | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities)')
+          # Register a new task definition with the updated image
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$UPDATED_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          # Update the ECS service to use the new task definition
+          aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $NEW_TASK_DEF_ARN

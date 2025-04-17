@@ -57,7 +57,7 @@ def manage_user_details(method, user_role, user_id=None, name=None, dob=None, ad
         return result if result else {'Message': 'Operation completed but no data returned.'}
     except Exception as e:
         print(f"Error: {e}")
-        return {'Message': 'Error processing request.'}
+        return {'Message': f'Error processing request: {str(e)}'}
     finally:
         cursor.close()
         conn.close()
