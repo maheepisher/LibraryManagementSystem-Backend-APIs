@@ -62,50 +62,98 @@ jobs:
           docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG "./Reservation API"
           docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG
 
-      - name: Deploy Books to ECS
-        run: |
-            SERVICE_NAME=Books-ECSService
-            CONTAINER_NAME=books-container
-            # Get current task definition ARN from the service
-            TASK_DEF_ARN=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].taskDefinition' --output text)
-            # Retrieve the full task definition
-            TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN --query 'taskDefinition' --output json)
-            # Update the image for the specific container
-            NEW_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG"
-            UPDATED_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$NEW_IMAGE" --arg NAME "$CONTAINER_NAME" '.containerDefinitions = [.containerDefinitions[] | if .name == $NAME then .image = $IMAGE else . end] | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities)')
-            # Register a new task definition with the updated image
-            NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$UPDATED_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
-            # Update the ECS service to use the new task definition
-            aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $NEW_TASK_DEF_ARN
-  
-      - name: Deploy Users to ECS
-        run: |
-            SERVICE_NAME=User-ECSService
-            CONTAINER_NAME=user-container
-            # Get current task definition ARN from the service
-            TASK_DEF_ARN=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].taskDefinition' --output text)
-            # Retrieve the full task definition
-            TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN --query 'taskDefinition' --output json)
-            # Update the image for the specific container
-            NEW_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG"
-            UPDATED_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$NEW_IMAGE" --arg NAME "$CONTAINER_NAME" '.containerDefinitions = [.containerDefinitions[] | if .name == $NAME then .image = $IMAGE else . end] | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities)')
-            # Register a new task definition with the updated image
-            NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$UPDATED_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
-            # Update the ECS service to use the new task definition
-            aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $NEW_TASK_DEF_ARN
-  
+      # Deploy Reservation to ECS
       - name: Deploy Reservation to ECS
         run: |
-            SERVICE_NAME=Reservation-ECSService
-            CONTAINER_NAME=reservation-container
-            # Get current task definition ARN from the service
-            TASK_DEF_ARN=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].taskDefinition' --output text)
-            # Retrieve the full task definition
-            TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN --query 'taskDefinition' --output json)
-            # Update the image for the specific container
-            NEW_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG"
-            UPDATED_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$NEW_IMAGE" --arg NAME "$CONTAINER_NAME" '.containerDefinitions = [.containerDefinitions[] | if .name == $NAME then .image = $IMAGE else . end] | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities)')
-            # Register a new task definition with the updated image
-            NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$UPDATED_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
-            # Update the ECS service to use the new task definition
-            aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $NEW_TASK_DEF_ARN
+          SERVICE_NAME="Reservation-ECSService"
+          CONTAINER_NAME="reservation-container"
+          TASK_DEF_ARN=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].taskDefinition' --output text)
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN --query 'taskDefinition' --output json)
+          NEW_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/reservation:$IMAGE_TAG"
+          UPDATED_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$NEW_IMAGE" --arg NAME "$CONTAINER_NAME" '
+            {
+              "family": .family,
+              "taskRoleArn": .taskRoleArn,
+              "executionRoleArn": .executionRoleArn,
+              "networkMode": .networkMode,
+              "containerDefinitions": [.containerDefinitions[] | if .name == $NAME then .image = $IMAGE else . end]
+            } + 
+            (if .volumes then {"volumes": .volumes} else {} end) +
+            (if .placementConstraints then {"placementConstraints": .placementConstraints} else {} end) +
+            (if .requiresCompatibilities then {"requiresCompatibilities": .requiresCompatibilities} else {} end) +
+            (if .cpu then {"cpu": .cpu} else {} end) +
+            (if .memory then {"memory": .memory} else {} end) +
+            (if .tags then {"tags": .tags} else {} end) +
+            (if .pidMode then {"pidMode": .pidMode} else {} end) +
+            (if .ipcMode then {"ipcMode": .ipcMode} else {} end) +
+            (if .proxyConfiguration then {"proxyConfiguration": .proxyConfiguration} else {} end) +
+            (if .inferenceAccelerators then {"inferenceAccelerators": .inferenceAccelerators} else {} end) +
+            (if .ephemeralStorage then {"ephemeralStorage": .ephemeralStorage} else {} end) +
+            (if .runtimePlatform then {"runtimePlatform": .runtimePlatform} else {} end) +
+            (if .enableFaultInjection then {"enableFaultInjection": .enableFaultInjection} else {} end)')
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$UPDATED_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $NEW_TASK_DEF_ARN
+
+      # Deploy Users to ECS
+      - name: Deploy Users to ECS
+        run: |
+          SERVICE_NAME="User-ECSService"
+          CONTAINER_NAME="user-container"
+          TASK_DEF_ARN=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].taskDefinition' --output text)
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN --query 'taskDefinition' --output json)
+          NEW_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/users:$IMAGE_TAG"
+          UPDATED_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$NEW_IMAGE" --arg NAME "$CONTAINER_NAME" '
+            {
+              "family": .family,
+              "taskRoleArn": .taskRoleArn,
+              "executionRoleArn": .executionRoleArn,
+              "networkMode": .networkMode,
+              "containerDefinitions": [.containerDefinitions[] | if .name == $NAME then .image = $IMAGE else . end]
+            } + 
+            (if .volumes then {"volumes": .volumes} else {} end) +
+            (if .placementConstraints then {"placementConstraints": .placementConstraints} else {} end) +
+            (if .requiresCompatibilities then {"requiresCompatibilities": .requiresCompatibilities} else {} end) +
+            (if .cpu then {"cpu": .cpu} else {} end) +
+            (if .memory then {"memory": .memory} else {} end) +
+            (if .tags then {"tags": .tags} else {} end) +
+            (if .pidMode then {"pidMode": .pidMode} else {} end) +
+            (if .ipcMode then {"ipcMode": .ipcMode} else {} end) +
+            (if .proxyConfiguration then {"proxyConfiguration": .proxyConfiguration} else {} end) +
+            (if .inferenceAccelerators then {"inferenceAccelerators": .inferenceAccelerators} else {} end) +
+            (if .ephemeralStorage then {"ephemeralStorage": .ephemeralStorage} else {} end) +
+            (if .runtimePlatform then {"runtimePlatform": .runtimePlatform} else {} end) +
+            (if .enableFaultInjection then {"enableFaultInjection": .enableFaultInjection} else {} end)')
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$UPDATED_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $NEW_TASK_DEF_ARN
+
+      # Deploy Books to ECS
+      - name: Deploy Books to ECS
+        run: |
+          SERVICE_NAME="Books-ECSService"
+          CONTAINER_NAME="books-container"
+          TASK_DEF_ARN=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].taskDefinition' --output text)
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN --query 'taskDefinition' --output json)
+          NEW_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO/books:$IMAGE_TAG"
+          UPDATED_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$NEW_IMAGE" --arg NAME "$CONTAINER_NAME" '
+            {
+              "family": .family,
+              "taskRoleArn": .taskRoleArn,
+              "executionRoleArn": .executionRoleArn,
+              "networkMode": .networkMode,
+              "containerDefinitions": [.containerDefinitions[] | if .name == $NAME then .image = $IMAGE else . end]
+            } + 
+            (if .volumes then {"volumes": .volumes} else {} end) +
+            (if .placementConstraints then {"placementConstraints": .placementConstraints} else {} end) +
+            (if .requiresCompatibilities then {"requiresCompatibilities": .requiresCompatibilities} else {} end) +
+            (if .cpu then {"cpu": .cpu} else {} end) +
+            (if .memory then {"memory": .memory} else {} end) +
+            (if .tags then {"tags": .tags} else {} end) +
+            (if .pidMode then {"pidMode": .pidMode} else {} end) +
+            (if .ipcMode then {"ipcMode": .ipcMode} else {} end) +
+            (if .proxyConfiguration then {"proxyConfiguration": .proxyConfiguration} else {} end) +
+            (if .inferenceAccelerators then {"inferenceAccelerators": .inferenceAccelerators} else {} end) +
+            (if .ephemeralStorage then {"ephemeralStorage": .ephemeralStorage} else {} end) +
+            (if .runtimePlatform then {"runtimePlatform": .runtimePlatform} else {} end) +
+            (if .enableFaultInjection then {"enableFaultInjection": .enableFaultInjection} else {} end)')
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$UPDATED_TASK_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $NEW_TASK_DEF_ARN
