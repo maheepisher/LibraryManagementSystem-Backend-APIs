@@ -1,0 +1,692 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Fargate Services with ALB, New VPC with Single NAT Gateway, RDS MySQL, and Bastion Host
+
+Parameters:
+  UserContainerImage:
+    Type: String
+    Description: URI of the container image for the User service
+  ReservationContainerImage:
+    Type: String
+    Description: URI of the container image for the Reservation service
+  BooksContainerImage:
+    Type: String
+    Description: URI of the container image for the Books service
+  DBUSER:
+    Type: String
+    Description: Username for RDS DB
+  DBPASSWORD:
+    Type: String
+    Description: Password for RDS DB
+  BastionKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 key pair for SSH access to the bastion host
+  BastionAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: ID of the custom AMI for the bastion host
+  RDSSnapshotIdentifier:
+    Type: String
+    Description: Identifier of the existing RDS snapshot to restore from
+    Default: ''
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.101.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Subnets
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.101.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.101.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  PrivateSubnet1ECS:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.101.3.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      
+  PrivateSubnet2ECS:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.101.4.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      
+  PrivateSubnet1RDS:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.101.5.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  PrivateSubnet2RDS:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.101.6.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Single NAT Gateway
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  # Route Table for ECS Private Subnets
+  PrivateRouteTableECS:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRouteECS:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableECS
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1ECSRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1ECS
+      RouteTableId: !Ref PrivateRouteTableECS
+      
+  PrivateSubnet2ECSRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2ECS
+      RouteTableId: !Ref PrivateRouteTableECS
+
+  # Route Tables for RDS Private Subnets (no internet access)
+  PrivateRouteTableRDS:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRouteRDS:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableRDS
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RDSRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1RDS
+      RouteTableId: !Ref PrivateRouteTableRDS
+
+  PrivateSubnet2RDSRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2RDS
+      RouteTableId: !Ref PrivateRouteTableRDS
+
+  # Security Groups
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS services
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for bastion host
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+
+# Load Balancer
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  # Target Groups
+  UserTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 5000
+      Protocol: HTTP
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /api/user/test
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '200'
+      TargetType: ip
+
+  ReservationTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 5000
+      Protocol: HTTP
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /api/reservation/test
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '200'
+      TargetType: ip
+
+  BooksTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 5000
+      Protocol: HTTP
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /api/books/test
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: '200'
+      TargetType: ip
+
+  # Listener
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: '404'
+            ContentType: text/plain
+            MessageBody: 'Not Found'
+
+  # Listener Rules
+  UserListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values: ['/api/user*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref UserTargetGroup
+
+  ReservationListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 2
+      Conditions:
+        - Field: path-pattern
+          Values: ['/api/reservation*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ReservationTargetGroup
+
+  BooksListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 3
+      Conditions:
+        - Field: path-pattern
+          Values: ['/api/books*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref BooksTargetGroup
+
+  # DB Subnet Group
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnet1RDS
+        - !Ref PrivateSubnet2RDS
+
+  # RDS Instance
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.small
+      Engine: mysql
+      MasterUsername: !Ref DBUSER
+      MasterUserPassword: !Ref DBPASSWORD
+      DBName: !If
+        - HasSnapshot
+        - !Ref AWS::NoValue
+        - capstonelmsdb
+      AllocatedStorage: 20
+      StorageType: gp2
+      MultiAZ: true
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBSnapshotIdentifier: !If
+        - HasSnapshot
+        - !Ref RDSSnapshotIdentifier
+        - !Ref AWS::NoValue
+
+  # Bastion Host
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref BastionAmiId
+      InstanceType: t2.micro
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      KeyName: !Ref BastionKeyName
+      
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: LMS-Cluster
+
+  # IAM Role for ECS Task Execution
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+    # IAM Role for ECS Task (for Lambda and other AWS services)
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: '*'
+
+  # Log Group
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/LMS-service
+      RetentionInDays: 7
+
+  # Task Definitions
+  UserTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: user-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: user-container
+          Image: !Ref UserContainerImage
+          PortMappings:
+            - ContainerPort: 5000
+              #Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: user
+          Environment:
+            - Name: DB_HOST
+              Value: !GetAtt RDSInstance.Endpoint.Address
+            - Name: DBUSER
+              Value: !Ref DBUSER
+            - Name: DBPASSWORD
+              Value: !Ref DBPASSWORD
+            - Name: DB_NAME
+              Value: capstonelmsdb
+            - Name: DB_PORT
+              Value: '3306'
+          Essential: true
+
+  ReservationTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: reservation-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: reservation-container
+          Image: !Ref ReservationContainerImage
+          PortMappings:
+            - ContainerPort: 5000
+              #Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: reservation
+          Environment:
+            - Name: DB_HOST
+              Value: !GetAtt RDSInstance.Endpoint.Address
+            - Name: DBUSER
+              Value: !Ref DBUSER
+            - Name: DBPASSWORD
+              Value: !Ref DBPASSWORD
+            - Name: DB_NAME
+              Value: capstonelmsdb
+            - Name: DB_PORT
+              Value: '3306'
+          Essential: true
+
+  BooksTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: books-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: books-container
+          Image: !Ref BooksContainerImage
+          PortMappings:
+            - ContainerPort: 5000
+              #Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: books
+          Environment:
+            - Name: DB_HOST
+              Value: !GetAtt RDSInstance.Endpoint.Address
+            - Name: DBUSER
+              Value: !Ref DBUSER
+            - Name: DBPASSWORD
+              Value: !Ref DBPASSWORD
+            - Name: DB_NAME
+              Value: capstonelmsdb
+            - Name: DB_PORT
+              Value: '3306'
+          Essential: true
+
+  # ECS Services
+  UserService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - Listener
+      - UserListenerRule
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: User-ECSService
+      TaskDefinition: !Ref UserTaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PrivateSubnet1ECS
+            - !Ref PrivateSubnet2ECS
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref UserTargetGroup
+          ContainerName: user-container
+          ContainerPort: 5000
+
+  # Auto Scaling for User Service
+  UserECSAutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 4
+      MinCapacity: 2
+      ResourceId: !Sub service/${ECSCluster}/${UserService.Name}
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  UserECSAutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: Reservation-ECSScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref UserECSAutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+          
+  ReservationService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - Listener
+      - ReservationListenerRule
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: Reservation-ECSService
+      TaskDefinition: !Ref ReservationTaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PrivateSubnet1ECS
+            - !Ref PrivateSubnet2ECS
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref ReservationTargetGroup
+          ContainerName: reservation-container
+          ContainerPort: 5000
+          
+  # Auto Scaling for Reservation Service
+  ReservationECSAutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 4
+      MinCapacity: 2
+      ResourceId: !Sub service/${ECSCluster}/${ReservationService.Name}
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ReservationECSAutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: Reservation-ECSScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ReservationECSAutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+
+  BooksService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - Listener
+      - BooksListenerRule
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: Books-ECSService
+      TaskDefinition: !Ref BooksTaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PrivateSubnet1ECS
+            - !Ref PrivateSubnet2ECS
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref BooksTargetGroup
+          ContainerName: books-container
+          ContainerPort: 5000
+
+  # Auto Scaling for Books Service
+  BooksECSAutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 4
+      MinCapacity: 2
+      ResourceId: !Sub service/${ECSCluster}/${BooksService.Name}
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  BooksECSAutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: Books-ECSScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref BooksECSAutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+          
+Conditions:
+  HasSnapshot: !Not [!Equals [!Ref RDSSnapshotIdentifier, '']]
+
+Outputs:
+  LoadBalancerDNS:
+    Description: URL of the Load Balancer
+    Value: !Sub http://${LoadBalancer.DNSName}
+    #Value: !GetAtt LoadBalancer.DNSName
